@@ -1,0 +1,5 @@
+{
+  "name": "Gestionnaire de Finances Personnelles",
+  "description": "Une application web interactive pour suivre vos revenus, dépenses et épargne à partir d'un fichier Excel. Visualisez vos finances avec des tableaux de bord dynamiques, gérez vos budgets et exportez des rapports.",
+  "requestFramePermissions": []
+}
