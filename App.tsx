@@ -28,7 +28,7 @@ const App: React.FC = () => {
             <header className="bg-gray-800 shadow-md">
                 <div className="container mx-auto px-4 py-4 flex justify-between items-center">
                     <h1 className="text-2xl font-bold text-cyan-400">
-                        📊 Gestionnaire de Finances Personnelles
+                        📊 Dashboard Financier
                     </h1>
                     {isDataLoaded && (
                         <button

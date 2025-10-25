@@ -30,17 +30,48 @@ const TransactionRow: React.FC<{ transaction: Transaction }> = ({ transaction })
 
 const TransactionList: React.FC<TransactionListProps> = ({ transactions }) => {
     const [searchTerm, setSearchTerm] = useState('');
+    const [activeTab, setActiveTab] = useState<'all' | 'Dépense' | 'Revenu' | 'Sorties'>('all');
+
+    const tabs: {id: typeof activeTab, label: string}[] = [
+        { id: 'all', label: 'Tout' },
+        { id: 'Dépense', label: 'Dépenses' },
+        { id: 'Revenu', label: 'Revenus' },
+        { id: 'Sorties', label: 'Épargne' },
+    ];
 
     const filteredTransactions = useMemo(() => {
-        if (!searchTerm) return transactions;
-        return transactions.filter(t => 
-            t.description.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-    }, [transactions, searchTerm]);
+        return transactions.filter(t => {
+            const searchMatch = !searchTerm || t.description.toLowerCase().includes(searchTerm.toLowerCase());
+            const tabMatch = activeTab === 'all' || t.type === activeTab;
+            return searchMatch && tabMatch;
+        });
+    }, [transactions, searchTerm, activeTab]);
 
     return (
         <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-            <h3 className="text-lg font-semibold text-cyan-400 mb-4">Historique des Transactions</h3>
+            <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-cyan-400">Historique des Transactions</h3>
+            </div>
+
+            <div className="mb-4 border-b border-gray-700">
+                <nav className="-mb-px flex space-x-6" aria-label="Tabs">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`${
+                                activeTab === tab.id
+                                    ? 'border-cyan-400 text-cyan-400'
+                                    : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-500'
+                            } whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm transition-colors focus:outline-none`}
+                             aria-current={activeTab === tab.id ? 'page' : undefined}
+                        >
+                            {tab.label}
+                        </button>
+                    ))}
+                </nav>
+            </div>
+            
             <input
                 type="text"
                 placeholder="Rechercher par description..."

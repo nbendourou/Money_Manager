@@ -107,7 +107,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded }) => {
         reader.readAsBinaryString(file);
     }, []);
 
-    const FileInputBox = ({ title, onFileSelected, file, error }: { title: string, onFileSelected: (file: File) => void, file: File | null, error: string | null }) => {
+    const FileInputBox = ({ title, description, onFileSelected, file, error }: { title: string, description: string, onFileSelected: (file: File) => void, file: File | null, error: string | null }) => {
         const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
             if (event.target.files?.[0]) onFileSelected(event.target.files[0]);
         };
@@ -136,7 +136,7 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded }) => {
                         {isUploaded ? (
                            <p className="text-gray-400 truncate max-w-full px-2">{file.name}</p>
                         ) : (
-                           <p className="text-sm text-gray-500">Glissez-déposez ou cliquez ici</p>
+                           <p className="text-sm text-gray-500">{description}</p>
                         )}
                     </div>
                 </div>
@@ -148,8 +148,20 @@ const FileUpload: React.FC<FileUploadProps> = ({ onDataLoaded }) => {
     return (
         <div className="w-full max-w-4xl mx-auto">
             <div className="space-y-6 md:space-y-0 md:flex md:gap-8">
-                <FileInputBox title="Fichier des Transactions" onFileSelected={processTransactions} file={transactionFile} error={transactionError} />
-                <FileInputBox title="Fichier Budget Annuel" onFileSelected={processBudget} file={budgetFile} error={budgetError} />
+                <FileInputBox 
+                    title="Fichier des Transactions" 
+                    description="Glissez-déposez ou cliquez ici (.xlsx)" 
+                    onFileSelected={processTransactions} 
+                    file={transactionFile} 
+                    error={transactionError} 
+                />
+                <FileInputBox 
+                    title="Fichier Budget Annuel" 
+                    description="Doit contenir 'Catégorie' & 'Budget'"
+                    onFileSelected={processBudget} 
+                    file={budgetFile} 
+                    error={budgetError} 
+                />
             </div>
             {isProcessing && !transactions && !budget && <p className="mt-6 text-center text-cyan-400">Traitement des fichiers...</p>}
         </div>

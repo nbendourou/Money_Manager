@@ -1,7 +1,6 @@
-
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import 'jspdf-autotable';
 import type { Transaction } from '../types';
 
 // Define interfaces for data structures passed from the dashboard
@@ -182,7 +181,7 @@ export const exportToPdf = (
     doc.setFontSize(14);
     doc.text("Résumé Financier", 14, startY);
     startY += 8;
-    autoTable(doc, {
+    (doc as any).autoTable({
         body: [
             ['Total Revenus', formatCurrency(kpis.totalRevenue)],
             ['Total Dépenses', formatCurrency(kpis.totalExpenses)],
@@ -249,7 +248,7 @@ export const exportToPdf = (
     }), { actualAmount: 0, proratedBudget: 0, difference: 0 });
     const budgetFoot = [['Total', formatCurrency(budgetTotals.actualAmount), formatCurrency(budgetTotals.proratedBudget), formatCurrency(budgetTotals.difference)]];
 
-    autoTable(doc, {
+    (doc as any).autoTable({
         head: budgetHead,
         body: budgetBody,
         foot: budgetFoot,
@@ -285,7 +284,7 @@ export const exportToPdf = (
         ];
     });
 
-    autoTable(doc, {
+    (doc as any).autoTable({
         head: txHead,
         body: txBody,
         startY,

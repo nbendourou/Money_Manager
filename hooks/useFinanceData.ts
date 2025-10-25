@@ -4,46 +4,54 @@ import type { Transaction, FilterState, MonthlyData, CategoryData, BudgetData } 
 
 export const useFinanceData = (transactions: Transaction[], budget: BudgetData, filters: FilterState) => {
 
-    const { filteredTransactions, filterPeriod } = useMemo(() => {
-        let startDate: Date | null = null;
-        let endDate: Date | null = null;
+    const { filteredTransactions, periodDates } = useMemo(() => {
+        let txs = transactions;
         
-        const txs = transactions.filter(t => {
-            const date = t.date;
-            let match = true;
-            if (filters.year !== 'all' && date.getFullYear() !== filters.year) {
-                match = false;
-            }
-            if (filters.month !== 'all' && (date.getMonth() + 1) !== filters.month) {
-                match = false;
-            }
-            if (filters.dateRange.startDate && date < filters.dateRange.startDate) {
-                match = false;
-            }
-            if (filters.dateRange.endDate) {
-                const inclusiveEndDate = new Date(filters.dateRange.endDate);
-                inclusiveEndDate.setDate(inclusiveEndDate.getDate() + 1);
-                if (date >= inclusiveEndDate) {
+        if (filters.dateRange.startDate || filters.dateRange.endDate) {
+            txs = txs.filter(t => {
+                const date = t.date;
+                if (filters.dateRange.startDate && date < filters.dateRange.startDate) return false;
+                if (filters.dateRange.endDate) {
+                    const inclusiveEndDate = new Date(filters.dateRange.endDate);
+                    inclusiveEndDate.setDate(inclusiveEndDate.getDate() + 1); // Make it inclusive
+                    if (date >= inclusiveEndDate) return false;
+                }
+                return true;
+            });
+        } else {
+             txs = transactions.filter(t => {
+                const date = t.date;
+                let match = true;
+                if (filters.year !== 'all' && date.getFullYear() !== filters.year) {
                     match = false;
                 }
-            }
-            return match;
-        });
+                if (filters.month !== 'all' && (date.getMonth() + 1) !== filters.month) {
+                    match = false;
+                }
+                return match;
+            });
+        }
 
+        let startDate: Date | null = null;
+        let endDate: Date | null = null;
         if (txs.length > 0) {
             const dates = txs.map(t => t.date.getTime());
             startDate = new Date(Math.min(...dates));
             endDate = new Date(Math.max(...dates));
         }
-
-        const days = startDate && endDate ? (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24) + 1 : 0;
         
         return { 
             filteredTransactions: txs.sort((a,b) => b.date.getTime() - a.date.getTime()),
-            filterPeriod: { days }
+            periodDates: { startDate, endDate }
         };
 
     }, [transactions, filters]);
+    
+    const filterPeriod = useMemo(() => {
+        const { startDate, endDate } = periodDates;
+        const days = startDate && endDate ? (endDate.getTime() - startDate.getTime()) / (1000 * 3600 * 24) + 1 : 0;
+        return { days };
+    }, [periodDates]);
 
     const kpis = useMemo(() => {
         const totalRevenue = filteredTransactions
@@ -63,6 +71,45 @@ export const useFinanceData = (transactions: Transaction[], budget: BudgetData, 
         
         return { totalRevenue, totalExpenses, totalSavings, netBalance, savingsRate };
     }, [filteredTransactions]);
+    
+    const previousKpis = useMemo(() => {
+        const { startDate: currentStart, endDate: currentEnd } = periodDates;
+
+        let prevStart: Date | null = null;
+        let prevEnd: Date | null = null;
+
+        // Determine previous period based on active filters
+        if (filters.dateRange.startDate || filters.dateRange.endDate) {
+            // Case 1: Custom Date Range
+            if (currentStart && currentEnd) {
+                const duration = currentEnd.getTime() - currentStart.getTime();
+                prevEnd = new Date(currentStart.getTime() - 1); // Day before
+                prevStart = new Date(prevEnd.getTime() - duration);
+            }
+        } else if (filters.year !== 'all' && filters.month !== 'all') {
+            // Case 2: Specific Month is selected
+            const d = new Date(filters.year, filters.month - 1, 1);
+            d.setMonth(d.getMonth() - 1);
+            prevStart = new Date(d.getFullYear(), d.getMonth(), 1);
+            prevEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
+        } else if (filters.year !== 'all') {
+            // Case 3: Specific Year is selected
+            prevStart = new Date(filters.year - 1, 0, 1);
+            prevEnd = new Date(filters.year - 1, 11, 31, 23, 59, 59);
+        }
+        
+        if (!prevStart || !prevEnd) {
+            return { totalRevenue: 0, totalExpenses: 0, totalSavings: 0 };
+        }
+
+        const previousTransactions = transactions.filter(t => t.date >= prevStart! && t.date <= prevEnd!);
+
+        return {
+            totalRevenue: previousTransactions.filter(t => t.type === 'Revenu').reduce((sum, t) => sum + t.amount, 0),
+            totalExpenses: previousTransactions.filter(t => t.type === 'Dépense').reduce((sum, t) => sum + t.amount, 0),
+            totalSavings: previousTransactions.filter(t => t.type === 'Sorties').reduce((sum, t) => sum + t.amount, 0),
+        };
+    }, [transactions, filters, periodDates]);
 
     const monthlyChartData = useMemo<MonthlyData[]>(() => {
         const monthly = new Map<string, { revenus: number; depenses: number; epargne: number }>();
@@ -203,15 +250,52 @@ export const useFinanceData = (transactions: Transaction[], budget: BudgetData, 
         return chartData;
     }, [allCategoryExpenses, expenseSummaryData]);
 
+    const expenseCategories = useMemo(() => {
+        const categories = new Set<string>();
+        filteredTransactions
+            .filter(t => t.type === 'Dépense')
+            .forEach(t => {
+                const key = t.description.split(' - ')[0] || t.description;
+                categories.add(key);
+            });
+        return Array.from(categories).sort();
+    }, [filteredTransactions]);
+
+    const revenueCategories = useMemo(() => {
+        const categories = new Set<string>();
+        filteredTransactions
+            .filter(t => t.type === 'Revenu')
+            .forEach(t => {
+                const key = t.description.split(' - ')[0] || t.description;
+                categories.add(key);
+            });
+        return Array.from(categories).sort();
+    }, [filteredTransactions]);
+
+    const savingsCategories = useMemo(() => {
+        const categories = new Set<string>();
+        filteredTransactions
+            .filter(t => t.type === 'Sorties')
+            .forEach(t => {
+                const key = t.description.split(' - ')[0] || t.description;
+                categories.add(key);
+            });
+        return Array.from(categories).sort();
+    }, [filteredTransactions]);
+
 
     return {
         filteredTransactions,
         kpis,
+        previousKpis,
         monthlyChartData,
         categoryChartData,
         revenueByCategoryData,
         savingsDistributionData,
         expenseSummaryData,
         filterPeriod,
+        expenseCategories,
+        revenueCategories,
+        savingsCategories,
     };
 };

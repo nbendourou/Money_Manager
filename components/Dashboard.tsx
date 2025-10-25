@@ -1,6 +1,6 @@
 
-import React, { useState, useMemo, useRef } from 'react';
-import type { Transaction, FilterState, DateRange, BudgetData } from '../types';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import type { Transaction, FilterState, BudgetData, MonthlyData } from '../types';
 import { useFinanceData } from '../hooks/useFinanceData';
 
 import Filters from './Filters';
@@ -9,7 +9,7 @@ import { MonthlyEvolutionChart, ExpenseDistributionChart, SavingsDistributionCha
 import TransactionList from './TransactionList';
 import ExpenseSummaryTable from './Forecast';
 import { exportToExcel, exportToPdf, exportBudgetAnalysisToExcel } from '../services/reportingService';
-import { Download, FileText, Loader2 } from 'lucide-react';
+import { Download, FileText, Loader2, TrendingUp, TrendingDown, PiggyBank, Scale, BadgePercent } from 'lucide-react';
 
 interface DashboardProps {
     transactions: Transaction[];
@@ -23,6 +23,9 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
         dateRange: { startDate: null, endDate: null }
     });
     const [isExportingPdf, setIsExportingPdf] = useState(false);
+    const [monthlyChartMetric, setMonthlyChartMetric] = useState<'depenses' | 'revenus' | 'epargne'>('depenses');
+    const [monthlyChartCategory, setMonthlyChartCategory] = useState<string>('all');
+
 
     const monthlyChartRef = useRef<HTMLDivElement>(null);
     const savingsChartRef = useRef<HTMLDivElement>(null);
@@ -32,12 +35,59 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
     const {
         filteredTransactions,
         kpis,
+        previousKpis,
         monthlyChartData,
         categoryChartData,
         savingsDistributionData,
         revenueByCategoryData,
         expenseSummaryData,
+        expenseCategories,
+        revenueCategories,
+        savingsCategories,
     } = useFinanceData(transactions, budget, filters);
+
+    const categoryOptions = useMemo(() => {
+        switch (monthlyChartMetric) {
+            case 'depenses': return expenseCategories;
+            case 'revenus': return revenueCategories;
+            case 'epargne': return savingsCategories;
+            default: return [];
+        }
+    }, [monthlyChartMetric, expenseCategories, revenueCategories, savingsCategories]);
+
+    useEffect(() => {
+        setMonthlyChartCategory('all');
+    }, [monthlyChartMetric]);
+
+    const finalMonthlyChartData = useMemo(() => {
+        if (monthlyChartCategory === 'all') {
+            return monthlyChartData;
+        }
+
+        const metricToType: { [key in typeof monthlyChartMetric]: Transaction['type'] } = {
+            depenses: 'Dépense',
+            revenus: 'Revenu',
+            epargne: 'Sorties'
+        };
+        const targetType = metricToType[monthlyChartMetric];
+
+        const monthlyMap = new Map<string, MonthlyData>();
+        monthlyChartData.forEach(d => {
+            monthlyMap.set(d.name, { ...d, revenus: 0, depenses: 0, epargne: 0 });
+        });
+
+        filteredTransactions
+            .filter(t => t.type === targetType && (t.description.split(' - ')[0] || t.description) === monthlyChartCategory)
+            .forEach(t => {
+                const monthKey = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
+                if (monthlyMap.has(monthKey)) {
+                    const data = monthlyMap.get(monthKey)!;
+                    (data[monthlyChartMetric] as number) += t.amount;
+                }
+            });
+        
+        return Array.from(monthlyMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+    }, [monthlyChartData, monthlyChartCategory, monthlyChartMetric, filteredTransactions]);
 
     const handleExportExcel = () => {
         exportToExcel(filteredTransactions, kpis, expenseSummaryData, "rapport_financier_complet");
@@ -108,17 +158,17 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
 
             {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-                <KPICard title="Total Revenus" value={kpis.totalRevenue} format="currency" color="text-green-400" />
-                <KPICard title="Total Dépenses" value={kpis.totalExpenses} format="currency" color="text-red-400" />
-                <KPICard title="Total Épargne" value={kpis.totalSavings} format="currency" color="text-blue-400" />
-                <KPICard title="Solde Net" value={kpis.netBalance} format="currency" color={kpis.netBalance >= 0 ? 'text-green-400' : 'text-red-400'} />
-                <KPICard title="Taux d'Épargne" value={kpis.savingsRate} format="percent" color="text-yellow-400" />
+                <KPICard title="Total Revenus" value={kpis.totalRevenue} previousValue={previousKpis.totalRevenue} higherIsBetter={true} format="currency" color="text-green-400" Icon={TrendingUp} />
+                <KPICard title="Total Dépenses" value={kpis.totalExpenses} previousValue={previousKpis.totalExpenses} higherIsBetter={false} format="currency" color="text-red-400" Icon={TrendingDown} />
+                <KPICard title="Total Épargne" value={kpis.totalSavings} previousValue={previousKpis.totalSavings} higherIsBetter={true} format="currency" color="text-blue-400" Icon={PiggyBank} />
+                <KPICard title="Solde Net" value={kpis.netBalance} format="currency" color={kpis.netBalance >= 0 ? 'text-green-400' : 'text-red-400'} Icon={Scale} />
+                <KPICard title="Taux d'Épargne" value={kpis.savingsRate} format="percent" color="text-yellow-400" Icon={BadgePercent} />
             </div>
             
             {/* Export Buttons */}
-             <div className="flex justify-end space-x-4">
+            <div className="flex flex-wrap justify-end gap-4">
                 <button onClick={handleExportExcel} className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
-                    <Download size={18} /><span>Exporter Rapport Excel</span>
+                    <Download size={18} /><span>Exporter Excel</span>
                 </button>
                 <button 
                     onClick={handleExportPdf} 
@@ -130,16 +180,57 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                     ) : (
                         <FileText size={18} />
                     )}
-                    <span>{isExportingPdf ? 'Génération...' : 'Exporter Rapport PDF'}</span>
+                    <span>{isExportingPdf ? 'Génération...' : 'Exporter PDF'}</span>
                 </button>
             </div>
 
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <div ref={monthlyChartRef} className="bg-gray-800 p-4 rounded-lg shadow-lg">
-                    <h3 className="text-lg font-semibold mb-4 text-cyan-400">Évolution Mensuelle</h3>
-                    <MonthlyEvolutionChart data={monthlyChartData} />
+            <div ref={monthlyChartRef} className="bg-gray-800 p-4 rounded-lg shadow-lg">
+                <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
+                    <h3 className="text-lg font-semibold text-cyan-400">Évolution Mensuelle</h3>
+                    <div className="flex flex-wrap items-center gap-4 text-sm">
+                        <div className="flex items-center space-x-2">
+                            {(['depenses', 'revenus', 'epargne'] as const).map((m) => {
+                                const metricDetails = {
+                                    depenses: { label: 'Dépenses', color: 'bg-red-500', ringColor: 'focus:ring-red-500' },
+                                    revenus: { label: 'Revenus', color: 'bg-green-500', ringColor: 'focus:ring-green-500' },
+                                    epargne: { label: 'Épargne', color: 'bg-blue-500', ringColor: 'focus:ring-blue-500' },
+                                };
+                                const isSelected = monthlyChartMetric === m;
+                                return (
+                                    <button
+                                        key={m}
+                                        onClick={() => setMonthlyChartMetric(m)}
+                                        className={`px-3 py-1 rounded-full transition-colors ${
+                                            isSelected 
+                                            ? `${metricDetails[m].color} text-white font-semibold shadow-md` 
+                                            : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                                        } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 ${metricDetails[m].ringColor}`}
+                                    >
+                                        {metricDetails[m].label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <div className="relative">
+                            <label htmlFor="category-select" className="sr-only">Catégorie</label>
+                            <select
+                                id="category-select"
+                                value={monthlyChartCategory}
+                                onChange={(e) => setMonthlyChartCategory(e.target.value)}
+                                disabled={categoryOptions.length === 0}
+                                className="bg-gray-700 border border-gray-600 rounded-md py-1.5 px-3 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <option value="all">Toutes les catégories</option>
+                                {categoryOptions.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                            </select>
+                        </div>
+                    </div>
                 </div>
+                <MonthlyEvolutionChart data={finalMonthlyChartData} metric={monthlyChartMetric} />
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                  <div ref={savingsChartRef} className="bg-gray-800 p-4 rounded-lg shadow-lg">
                     <h3 className="text-lg font-semibold mb-4 text-cyan-400">Répartition de l'Épargne</h3>
                     <SavingsDistributionChart data={savingsDistributionData} />
@@ -155,7 +246,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
             </div>
 
             {/* Budget and Details */}
-             <ExpenseSummaryTable data={expenseSummaryData} onExport={handleExportBudget} />
+            <ExpenseSummaryTable data={expenseSummaryData} onExport={handleExportBudget} />
 
             {/* Transactions */}
             <TransactionList transactions={filteredTransactions} />
