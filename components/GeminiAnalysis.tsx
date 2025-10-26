@@ -1,7 +1,11 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { marked } from 'marked';
 import { X, Sparkles, Loader2 } from 'lucide-react';
 import type { Transaction, FilterState } from '../types';
+import { getAiClient } from '../services/aiService';
+// FIX: Import GenerateContentResponse for proper type checking of API responses.
+import type { GoogleGenAI, GenerateContentResponse } from '@google/genai';
 
 interface Kpis {
     totalRevenue: number;
@@ -25,21 +29,11 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
     const [error, setError] = useState<string | null>(null);
     const modalRef = useRef<HTMLDivElement>(null);
     const hasStartedAnalysis = useRef(false);
-    const aiClientRef = useRef<any>(null);
+    const aiClientRef = useRef<GoogleGenAI | null>(null);
 
-    const getAiClient = () => {
-        if (aiClientRef.current) {
-            return aiClientRef.current;
-        }
-        if (typeof window !== 'undefined' && (window as any).genai?.GoogleGenerativeAI) {
-            const GoogleGenerativeAIClient = (window as any).genai.GoogleGenerativeAI;
-            aiClientRef.current = new GoogleGenerativeAIClient({ apiKey: process.env.API_KEY });
-            return aiClientRef.current;
-        }
-        console.error("Google GenAI SDK not loaded.");
-        return null;
-    };
-
+    useEffect(() => {
+        aiClientRef.current = getAiClient();
+    }, []);
 
     const getFilterDescription = () => {
         if (filters.dateRange.startDate && filters.dateRange.endDate) {
@@ -56,9 +50,9 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
     };
 
     const generateAnalysis = useCallback(async () => {
-        const ai = getAiClient();
+        const ai = aiClientRef.current;
         if (!ai) {
-            setError("Le SDK de l'IA n'a pas pu être chargé. Veuillez rafraîchir la page et réessayer.");
+            setError("La clé API n'est pas configurée ou est invalide. Veuillez la configurer.");
             setIsLoading(false);
             return;
         }
@@ -70,14 +64,15 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
 
         const topExpenses = transactions
             .filter(t => t.type === 'Dépense')
-            // FIX: Add explicit type for the accumulator 'acc' to prevent its properties from being inferred as 'unknown', which caused downstream errors in arithmetic operations and method calls like '.toFixed'.
-            .reduce((acc: { [key: string]: number }, t) => {
+            // FIX: Add explicit type to `t` and cast initial value to fix type inference issues causing arithmetic errors.
+            .reduce((acc: { [key: string]: number }, t: Transaction) => {
                 const category = t.description.split(' - ')[0] || t.description;
                 acc[category] = (acc[category] || 0) + t.amount;
                 return acc;
             }, {} as { [key: string]: number });
         
-        const sortedTopExpenses = Object.entries(topExpenses).sort(([,a],[,b]) => b-a).slice(0, 5);
+        // FIX: Use a more robust sort callback to ensure correct type inference for `val` later.
+        const sortedTopExpenses = Object.entries(topExpenses).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
         const prompt = `
             En tant qu'expert en finances personnelles, analyse les données financières suivantes pour ${getFilterDescription()}.
@@ -101,20 +96,17 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
         `;
 
         try {
-            const stream = await ai.models.generateContentStream({
+            const response: GenerateContentResponse = await ai.models.generateContent({
                 model: 'gemini-2.5-flash',
                 contents: prompt,
             });
 
-            setIsLoading(false);
-            let text = '';
-            for await (const chunk of stream) {
-                text += chunk.text;
-                setAnalysis(text);
-            }
+            setAnalysis(response.text);
+
         } catch (err) {
             console.error(err);
-            setError("Désolé, une erreur est survenue lors de l'analyse. Veuillez réessayer.");
+            setError("Désolé, une erreur est survenue lors de l'analyse. Cela peut être dû à une clé API invalide ou à un problème de réseau. Veuillez réessayer.");
+        } finally {
             setIsLoading(false);
         }
     }, [transactions, kpis, filters]);
@@ -124,9 +116,9 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
             generateAnalysis();
         }
         if (!isOpen) {
-            // Reset when closing
             hasStartedAnalysis.current = false;
             setAnalysis('');
+            setError(null);
         }
     }, [isOpen, generateAnalysis]);
 
@@ -150,7 +142,7 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
 
     if (!isOpen) return null;
 
-    const formattedHtml = marked.parse(analysis);
+    const formattedHtml = analysis ? marked.parse(analysis) : '';
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
@@ -172,10 +164,10 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
                             <p className="text-gray-400">Gemini examine vos données pour vous fournir des conseils personnalisés.</p>
                         </div>
                     )}
-                    {error && <p className="text-red-400 text-center">{error}</p>}
+                    {error && <p className="text-red-400 text-center p-4 bg-red-900/50 rounded-lg">{error}</p>}
                     {!isLoading && analysis && (
                          <div
-                            className="prose prose-invert"
+                            className="prose prose-invert max-w-none prose-h3:text-cyan-300 prose-strong:text-white"
                             dangerouslySetInnerHTML={{ __html: formattedHtml }}
                         />
                     )}
@@ -184,15 +176,16 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
                     <button 
                         onClick={generateAnalysis}
                         disabled={isLoading}
-                        className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 disabled:bg-cyan-800 disabled:cursor-not-allowed"
+                        className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-6 rounded-lg transition duration-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center mx-auto gap-2"
                     >
-                       {isLoading ? 'Analyse...' : 'Régénérer l’analyse'}
+                       {isLoading ? <><Loader2 className="animate-spin" size={18}/>Analyse...</> : <><Sparkles size={18}/>Régénérer l’analyse</>}
                     </button>
                 </footer>
             </div>
              <style>{`
                 .animate-scale-in { animation: scaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
                 @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+                .prose-invert ul > li::before { background-color: #06b6d4; }
             `}</style>
         </div>
     );

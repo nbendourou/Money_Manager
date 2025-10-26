@@ -1,14 +1,26 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Transaction, BudgetData } from './types';
-import { DateRange, FilterState } from './types';
 import FileUpload from './components/FileUpload';
 import Dashboard from './components/Dashboard';
+import ApiKeyModal from './components/ApiKeyModal';
+import { getApiKey, setApiKey } from './services/aiService';
 
 const App: React.FC = () => {
     const [transactions, setTransactions] = useState<Transaction[]>([]);
     const [budget, setBudget] = useState<BudgetData | null>(null);
-    const [key, setKey] = useState<number>(0); // To force re-render of file input
+    const [key, setKey] = useState<number>(0);
+    const [isKeySet, setIsKeySet] = useState<boolean>(false);
+    const [showApiKeyModal, setShowApiKeyModal] = useState<boolean>(false);
+
+    useEffect(() => {
+        const key = getApiKey();
+        if (key) {
+            setIsKeySet(true);
+        } else {
+            setShowApiKeyModal(true); // Show modal if no key is found
+        }
+    }, []);
 
     const handleDataLoaded = (data: {transactions: Transaction[], budget: BudgetData}) => {
         setTransactions(data.transactions);
@@ -18,9 +30,15 @@ const App: React.FC = () => {
     const handleReset = () => {
         setTransactions([]);
         setBudget(null);
-        setKey(prevKey => prevKey + 1); // Change key to reset FileUpload
+        setKey(prevKey => prevKey + 1);
     };
-    
+
+    const handleKeySubmit = (apiKey: string) => {
+        setApiKey(apiKey);
+        setIsKeySet(true);
+        setShowApiKeyModal(false);
+    };
+
     const isDataLoaded = transactions.length > 0 && budget !== null;
 
     return (
@@ -42,12 +60,16 @@ const App: React.FC = () => {
             </header>
 
             <main className="container mx-auto p-4 md:p-6">
-                {!isDataLoaded ? (
+                {showApiKeyModal && <ApiKeyModal onSubmit={handleKeySubmit} />}
+                
+                {!showApiKeyModal && !isDataLoaded && (
                     <div className="flex items-center justify-center h-[calc(100vh-150px)]">
                          <FileUpload key={key} onDataLoaded={handleDataLoaded} />
                     </div>
-                ) : (
-                    <Dashboard transactions={transactions} budget={budget} />
+                )}
+
+                {!showApiKeyModal && isDataLoaded && (
+                    <Dashboard transactions={transactions} budget={budget} onManageApiKey={() => setShowApiKeyModal(true)} isKeySet={isKeySet} />
                 )}
             </main>
         </div>

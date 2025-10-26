@@ -8,15 +8,18 @@ import KPICard from './KPICard';
 import { MonthlyEvolutionChart, ExpenseDistributionChart, SavingsDistributionChart, RevenueDistributionChart } from './Charts';
 import TransactionList from './TransactionList';
 import ExpenseSummaryTable from './Forecast';
+import GeminiAnalysis from './GeminiAnalysis'; // Import GeminiAnalysis
 import { exportToExcel, exportToPdf, exportBudgetAnalysisToExcel } from '../services/reportingService';
-import { Download, FileText, Loader2, TrendingUp, TrendingDown, PiggyBank, Scale, BadgePercent } from 'lucide-react';
+import { Download, FileText, Loader2, TrendingUp, TrendingDown, PiggyBank, Scale, BadgePercent, Sparkles, KeyRound } from 'lucide-react';
 
 interface DashboardProps {
     transactions: Transaction[];
     budget: BudgetData;
+    isKeySet: boolean;
+    onManageApiKey: () => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
+const Dashboard: React.FC<DashboardProps> = ({ transactions, budget, isKeySet, onManageApiKey }) => {
     const [filters, setFilters] = useState<FilterState>({
         year: new Date().getFullYear(),
         month: 'all',
@@ -25,6 +28,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
     const [isExportingPdf, setIsExportingPdf] = useState(false);
     const [monthlyChartMetric, setMonthlyChartMetric] = useState<'depenses' | 'revenus' | 'epargne'>('depenses');
     const [monthlyChartCategory, setMonthlyChartCategory] = useState<string>('all');
+    const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false); // State for Gemini modal
 
 
     const monthlyChartRef = useRef<HTMLDivElement>(null);
@@ -82,8 +86,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                 const monthKey = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
                 if (monthlyMap.has(monthKey)) {
                     const data = monthlyMap.get(monthKey)!;
-                    // FIX: The left-hand side of an assignment expression must be a variable or a property access. A cast expression is a value, not a variable, and cannot be assigned to.
-                    data[monthlyChartMetric] += t.amount;
+                    // FIX: Remove `as any` cast to allow for direct property access with type safety.
+                    (data as any)[monthlyChartMetric] += t.amount;
                 }
             });
         
@@ -104,14 +108,12 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
             const canvas = document.createElement('canvas');
             
             const svgSize = svgElement.getBoundingClientRect();
-            // Use higher resolution for better quality
             const scale = 2;
             canvas.width = svgSize.width * scale;
             canvas.height = svgSize.height * scale;
             const ctx = canvas.getContext('2d');
             if (!ctx) return resolve('');
     
-            // Set background color to match the component's bg-gray-800
             ctx.fillStyle = '#1f2937';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
     
@@ -120,8 +122,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                 ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                 resolve(canvas.toDataURL('image/png'));
             };
-            img.onerror = () => resolve(''); // Resolve with empty string on error
-            // Use btoa to encode non-ASCII characters correctly in SVG
+            img.onerror = () => resolve('');
             img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svgData)))}`;
         });
     };
@@ -153,11 +154,17 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
 
     return (
         <div className="space-y-6">
+            <GeminiAnalysis 
+                isOpen={isAnalysisModalOpen}
+                onClose={() => setIsAnalysisModalOpen(false)}
+                transactions={filteredTransactions}
+                kpis={kpis}
+                filters={filters}
+            />
             <div className="bg-gray-800 p-4 rounded-lg shadow-lg">
                 <Filters filters={filters} setFilters={setFilters} availableYears={availableYears} />
             </div>
 
-            {/* KPIs */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <KPICard title="Total Revenus" value={kpis.totalRevenue} previousValue={previousKpis.totalRevenue} higherIsBetter={true} format="currency" color="text-green-400" Icon={TrendingUp} />
                 <KPICard title="Total Dépenses" value={kpis.totalExpenses} previousValue={previousKpis.totalExpenses} higherIsBetter={false} format="currency" color="text-red-400" Icon={TrendingDown} />
@@ -166,8 +173,21 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                 <KPICard title="Taux d'Épargne" value={kpis.savingsRate} format="percent" color="text-yellow-400" Icon={BadgePercent} />
             </div>
             
-            {/* Export Buttons */}
             <div className="flex flex-wrap justify-end gap-4">
+                 <div className="relative group">
+                    <button 
+                        onClick={() => isKeySet ? setIsAnalysisModalOpen(true) : onManageApiKey()}
+                        className={`flex items-center space-x-2 bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 ${!isKeySet && 'opacity-50 cursor-not-allowed'}`}
+                    >
+                        <Sparkles size={18} /><span>Obtenir une Analyse IA</span>
+                    </button>
+                    {!isKeySet && (
+                        <div className="absolute bottom-full mb-2 w-60 bg-gray-700 text-white text-xs rounded py-1 px-2 text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                            Veuillez configurer votre clé API Gemini pour activer cette fonctionnalité.
+                             <button onClick={onManageApiKey} className="text-cyan-400 underline ml-1">Configurer</button>
+                        </div>
+                    )}
+                </div>
                 <button onClick={handleExportExcel} className="flex items-center space-x-2 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
                     <Download size={18} /><span>Exporter Excel</span>
                 </button>
@@ -176,16 +196,14 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                     disabled={isExportingPdf}
                     className="flex items-center space-x-2 bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300 disabled:bg-red-800 disabled:cursor-not-allowed"
                 >
-                    {isExportingPdf ? (
-                        <Loader2 size={18} className="animate-spin" />
-                    ) : (
-                        <FileText size={18} />
-                    )}
+                    {isExportingPdf ? <Loader2 size={18} className="animate-spin" /> : <FileText size={18} />}
                     <span>{isExportingPdf ? 'Génération...' : 'Exporter PDF'}</span>
+                </button>
+                 <button onClick={onManageApiKey} className="flex items-center space-x-2 bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300" title="Gérer la clé API Gemini">
+                    <KeyRound size={18} />
                 </button>
             </div>
 
-            {/* Charts */}
             <div ref={monthlyChartRef} className="bg-gray-800 p-4 rounded-lg shadow-lg">
                 <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                     <h3 className="text-lg font-semibold text-cyan-400">Évolution Mensuelle</h3>
@@ -246,10 +264,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                 </div>
             </div>
 
-            {/* Budget and Details */}
             <ExpenseSummaryTable data={expenseSummaryData} onExport={handleExportBudget} />
 
-            {/* Transactions */}
             <TransactionList transactions={filteredTransactions} />
         </div>
     );
