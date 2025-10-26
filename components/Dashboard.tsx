@@ -82,7 +82,8 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, budget }) => {
                 const monthKey = `${t.date.getFullYear()}-${String(t.date.getMonth() + 1).padStart(2, '0')}`;
                 if (monthlyMap.has(monthKey)) {
                     const data = monthlyMap.get(monthKey)!;
-                    (data[monthlyChartMetric] as number) += t.amount;
+                    // FIX: The left-hand side of an assignment expression must be a variable or a property access. A cast expression is a value, not a variable, and cannot be assigned to.
+                    data[monthlyChartMetric] += t.amount;
                 }
             });
         

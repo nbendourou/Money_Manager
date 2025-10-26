@@ -70,7 +70,8 @@ const GeminiAnalysis: React.FC<GeminiAnalysisProps> = ({ isOpen, onClose, transa
 
         const topExpenses = transactions
             .filter(t => t.type === 'Dépense')
-            .reduce((acc, t) => {
+            // FIX: Add explicit type for the accumulator 'acc' to prevent its properties from being inferred as 'unknown', which caused downstream errors in arithmetic operations and method calls like '.toFixed'.
+            .reduce((acc: { [key: string]: number }, t) => {
                 const category = t.description.split(' - ')[0] || t.description;
                 acc[category] = (acc[category] || 0) + t.amount;
                 return acc;
